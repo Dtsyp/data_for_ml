@@ -213,7 +213,6 @@ __marimo__/
 data/
 models/
 reports/
-notebooks/
 
 # IDE
 .idea/
