@@ -13,22 +13,100 @@ Usage:
 """
 
 import argparse
-import json
 import os
-import pickle
+import subprocess
 import sys
-from datetime import datetime, timezone
+from pathlib import Path
 
-import numpy as np
-import pandas as pd
-import yaml
+PROJECT_DIR = Path(__file__).resolve().parent
+VENV_DIR = PROJECT_DIR / ".venv"
+VENV_PYTHON = VENV_DIR / "bin" / "python"
+REQUIREMENTS = PROJECT_DIR / "requirements.txt"
+
+
+def step_0_setup():
+    """Step 0: Automatically set up environment — venv, deps, .env, directories."""
+    print("=" * 60)
+    print("STEP 0: ENVIRONMENT SETUP")
+    print("=" * 60)
+
+    # --- venv ---
+    if not VENV_DIR.exists():
+        print("  Creating virtual environment...")
+        subprocess.check_call([sys.executable, "-m", "venv", str(VENV_DIR)])
+        print(f"  Created: {VENV_DIR}")
+    else:
+        print(f"  Virtual environment: OK ({VENV_DIR})")
+
+    # --- Re-exec inside venv if we're not already there ---
+    if Path(sys.executable).resolve() != VENV_PYTHON.resolve():
+        print("  Switching to venv python...")
+        # Install deps first (before re-exec)
+        _install_deps()
+        # Re-run this script under venv python with same args
+        os.execv(str(VENV_PYTHON), [str(VENV_PYTHON)] + sys.argv)
+
+    # If we're already in venv, just make sure deps are installed
+    _install_deps()
+
+    # --- .env ---
+    env_path = PROJECT_DIR / ".env"
+    env_example = PROJECT_DIR / ".env.example"
+    if not env_path.exists():
+        if env_example.exists():
+            import shutil
+            shutil.copy(env_example, env_path)
+            print(f"  Created .env from .env.example")
+            print(f"  !! Please fill in your API keys in .env !!")
+        else:
+            print("  WARNING: No .env file found. API features may not work.")
+    else:
+        print(f"  .env: OK")
+
+    # --- Directories ---
+    dirs = ["data/raw", "data/cleaned", "data/labeled", "data/active",
+            "data/eda", "data/detective", "models", "reports", "notebooks"]
+    for d in dirs:
+        (PROJECT_DIR / d).mkdir(parents=True, exist_ok=True)
+    print(f"  Directories: OK")
+
+    print()
+
+
+def _install_deps():
+    """Install dependencies if not already installed."""
+    try:
+        # Quick check: if pandas imports, deps are likely installed
+        subprocess.check_call(
+            [str(VENV_PYTHON), "-c", "import pandas, sklearn, matplotlib, yaml"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print("  Dependencies: OK")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("  Installing dependencies...")
+        subprocess.check_call(
+            [str(VENV_PYTHON), "-m", "pip", "install", "-q", "-r", str(REQUIREMENTS)],
+        )
+        print("  Dependencies: installed")
+
+
+def _lazy_imports():
+    """Import heavy dependencies after venv is set up."""
+    global json, pickle, datetime, timezone, np, pd, yaml
+    import json
+    import pickle
+    from datetime import datetime, timezone
+    import numpy as np
+    import pandas as pd
+    import yaml
 
 # Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, str(PROJECT_DIR))
 
 
 def load_config(path: str = "config.yaml") -> dict:
     """Load pipeline configuration."""
+    import yaml
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -704,6 +782,10 @@ def main():
     parser.add_argument("--skip-labeling", action="store_true", help="Skip labeling step")
     parser.add_argument("--skip-al", action="store_true", help="Skip active learning")
     args = parser.parse_args()
+
+    # Step 0: auto-setup environment
+    step_0_setup()
+    _lazy_imports()
 
     print("=" * 60)
     print("  RAMAN SPECTROSCOPY ML PIPELINE")
