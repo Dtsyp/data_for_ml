@@ -50,22 +50,37 @@ def step_1_collect(config: dict) -> pd.DataFrame:
         print(f"  Loaded {len(df)} rows")
         return df
 
+    # Get search query from config or ask user
+    task_name = config["task"]["name"]
+    default_query = config.get("sources", [{}])[0].get("query", "raman spectroscopy")
+    classes = config["task"]["classes"]
+
+    print(f"  Task: {task_name}")
+    print(f"  Classes: {classes}")
+    print(f"  Default search query: '{default_query}'")
+
+    try:
+        user_query = input(f"  Enter search query [{default_query}]: ").strip()
+        if user_query:
+            default_query = user_query
+    except EOFError:
+        pass
+
     # Search real datasets across all sources
-    print("  Searching datasets across all sources...")
+    print(f"\n  Searching datasets for: '{default_query}'...")
     try:
         from spectrum_collector_scripts.search_datasets import search_all, print_results_table
-        results = search_all("raman spectroscopy")
+        results = search_all(default_query)
         if results:
             print_results_table(results)
             print(f"\n  Found {len(results)} datasets from {len(set(r['source'] for r in results))} sources")
     except Exception as e:
         print(f"  Search completed with note: {e}")
 
-    # Generate synthetic Raman data for demonstration
-    # (In production, download real datasets from found sources above)
-    print("\n  Generating demonstration Raman spectroscopy dataset...")
+    # Generate demonstration dataset based on configured classes
+    print(f"\n  Generating demonstration dataset for classes: {classes}...")
     print("  (Real datasets can be downloaded using the search results above)")
-    df = generate_demo_dataset()
+    df = generate_demo_dataset(classes=classes)
 
     df.to_parquet(combined_path, index=False)
     print(f"  Saved {len(df)} rows to {combined_path}")
@@ -78,15 +93,18 @@ def step_1_collect(config: dict) -> pd.DataFrame:
     return df
 
 
-def generate_demo_dataset(n_samples: int = 300) -> pd.DataFrame:
+def generate_demo_dataset(n_samples: int = 300, classes: list[str] | None = None) -> pd.DataFrame:
     """Generate realistic synthetic Raman spectra for demonstration.
 
     Creates spectra with characteristic peaks for different material types.
+    Classes are taken from the config — not hardcoded.
     """
     np.random.seed(42)
     wavenumber = np.linspace(200, 3500, 500)
 
-    classes = {
+    # Spectral profiles: characteristic Raman peaks per material class
+    # These can be extended for any set of classes
+    spectral_profiles = {
         "polymer": {
             "peaks": [1000, 1450, 1600, 2900, 3000],
             "widths": [30, 20, 25, 40, 35],
@@ -109,10 +127,27 @@ def generate_demo_dataset(n_samples: int = 300) -> pd.DataFrame:
         },
     }
 
-    rows = []
-    samples_per_class = n_samples // len(classes)
+    # Use configured classes, fallback to all available profiles
+    if classes is None:
+        classes = list(spectral_profiles.keys())
 
-    for material, params in classes.items():
+    # For classes without a predefined profile, generate random peaks
+    for cls in classes:
+        if cls not in spectral_profiles:
+            n_peaks = np.random.randint(3, 6)
+            spectral_profiles[cls] = {
+                "peaks": sorted(np.random.randint(200, 3400, n_peaks).tolist()),
+                "widths": np.random.randint(10, 40, n_peaks).tolist(),
+                "intensities": np.random.uniform(0.3, 1.0, n_peaks).tolist(),
+            }
+
+    # Filter profiles to only configured classes
+    active_classes = {k: spectral_profiles[k] for k in classes}
+
+    rows = []
+    samples_per_class = n_samples // len(active_classes)
+
+    for material, params in active_classes.items():
         for i in range(samples_per_class):
             # Generate spectrum with characteristic peaks + noise
             spectrum = np.random.normal(0, 0.05, len(wavenumber))
@@ -143,7 +178,7 @@ def generate_demo_dataset(n_samples: int = 300) -> pd.DataFrame:
 
             # Some mislabeled samples for annotation agent to catch
             if i % 20 == 0 and i > 0:
-                wrong_classes = [c for c in classes.keys() if c != material]
+                wrong_classes = [c for c in active_classes.keys() if c != material]
                 rows[-1]["label"] = np.random.choice(wrong_classes) if rows else material
 
             rows.append({
