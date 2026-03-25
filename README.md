@@ -45,28 +45,27 @@ Spectrum Collector → Data Detective → Spectrum Labeler → Active Learner
 
 ## 4. Запуск
 
-### Установка
+### Быстрый старт (одна команда)
 
 ```bash
-# Создать виртуальное окружение
-python -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-
-# Установить зависимости
-pip install -r requirements.txt
-
-# Настроить API ключи
-cp .env.example .env
-# Заполнить MISTRAL_API_KEY в .env
+python run_pipeline.py
 ```
 
-### Запуск пайплайна
+Агент автоматически:
+1. Создаёт виртуальное окружение (`.venv`)
+2. Устанавливает все зависимости из `requirements.txt`
+3. Проверяет `.env` (копирует из `.env.example` если нет)
+4. Создаёт директории (`data/`, `models/`, `reports/`)
+5. Спрашивает тему для поиска данных
+6. Ищет датасеты по 4 источникам (HuggingFace, Kaggle, DuckDuckGo, Google Scholar)
+7. Запускает полный пайплайн с HITL-точками
+
+**Единственное требование:** заполнить `MISTRAL_API_KEY` в файле `.env` (для авторазметки).
+
+### Дополнительные параметры
 
 ```bash
-# Полный пайплайн
-python run_pipeline.py
-
-# С параметрами
+# Указать свой конфиг
 python run_pipeline.py --config config.yaml
 
 # Пропустить шаги (если данные уже собраны)
@@ -76,7 +75,7 @@ python run_pipeline.py --skip-collection --skip-labeling
 ### Запуск отдельных агентов
 
 ```bash
-# 1. Поиск датасетов
+# 1. Поиск датасетов (все источники)
 .venv/bin/python spectrum-collector/scripts/search_datasets.py --query "raman spectroscopy"
 
 # 2. Детекция проблем
