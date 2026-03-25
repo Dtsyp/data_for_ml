@@ -14,11 +14,15 @@ metadata:
 
 ## Workflow
 
-1. **Поиск датасетов** на HuggingFace и Kaggle
-2. **Показать таблицу** найденных датасетов пользователю
-3. ❗ **HITL**: пользователь выбирает какие датасеты скачать
-4. **Скачать** выбранные датасеты
-5. **Web scraping**: собрать дополнительные данные с RRUFF или другого источника
+1. **Поиск датасетов** из 4 источников:
+   - HuggingFace Hub — open datasets
+   - Kaggle — community datasets
+   - DuckDuckGo — web search для нишевых репозиториев
+   - Google Scholar — академические статьи с датасетами
+2. **Web scraping**: извлечение данных с найденных страниц (RRUFF и др.)
+3. **Показать таблицу** найденных датасетов пользователю
+4. ❗ **HITL**: пользователь выбирает какие датасеты скачать
+5. **Скачать** выбранные датасеты
 6. **Унификация схемы**: привести все к единому формату
 7. **EDA**: анализ и визуализации
 8. **Отчёт**: сгенерировать markdown отчёт
@@ -36,9 +40,16 @@ metadata:
 
 ### search_datasets.py
 ```bash
+# Поиск по всем источникам
 .venv/bin/python spectrum-collector/scripts/search_datasets.py --query "raman spectroscopy" --limit 10
+
+# Поиск по конкретным источникам
+.venv/bin/python spectrum-collector/scripts/search_datasets.py --query "raman spectroscopy" --sources hf,kaggle
+
+# Доступные источники: hf, kaggle, web, scholar, all (по умолчанию)
 ```
-Ищет датасеты на HuggingFace Hub. Выводит таблицу: name, size, description.
+Ищет датасеты на HuggingFace Hub, Kaggle, DuckDuckGo и Google Scholar. Выводит таблицу: source, name, downloads.
+Также содержит функцию `scrape_url()` для извлечения данных с найденных веб-страниц.
 
 ### unify_schema.py
 ```bash

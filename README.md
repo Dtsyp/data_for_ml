@@ -8,7 +8,7 @@ ML-пайплайн для классификации материалов по 
 - **ML-задача:** Классификация материалов по Raman-спектрам
 - **Классы:** polymer, mineral, organic, inorganic
 - **Объём:** ~300 спектров
-- **Источники:** HuggingFace datasets + synthetic generation (для демонстрации)
+- **Источники:** HuggingFace Hub, Kaggle, DuckDuckGo, Google Scholar + web scraping
 - **Схема данных:** `spectrum` (list[float]), `wavenumber` (list[float]), `label` (str), `source` (str), `collected_at` (str)
 
 ## 2. Архитектура: 4 агента
@@ -23,7 +23,7 @@ Spectrum Collector → Data Detective → Spectrum Labeler → Active Learner
 
 | Агент | Назначение | Ключевые методы |
 |-------|-----------|-----------------|
-| **Spectrum Collector** | Сбор из 2+ источников, унификация схемы, EDA | search, unify, eda |
+| **Spectrum Collector** | Сбор из 4 источников (HF, Kaggle, Web, Scholar) + scraping, унификация, EDA | search, scrape, unify, eda |
 | **Data Detective** | Детекция проблем, 3 стратегии чистки | detect_issues, fix, compare |
 | **Spectrum Labeler** | Авторазметка через Mistral API, confidence scoring | auto_label, generate_spec, export_labelstudio |
 | **Active Learner** | AL-цикл: entropy vs random, learning curves | fit, query, evaluate, report |

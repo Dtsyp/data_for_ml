@@ -15,6 +15,9 @@ ddgs>=9.0.0
 # Visualization
 matplotlib>=3.7.0
 
+# Search
+scholarly>=1.7.0
+
 # Config & UI
 pyyaml>=6.0
 python-dotenv>=1.0.0
