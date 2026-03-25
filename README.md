@@ -1,115 +1,167 @@
-# Raman/SERS Dataset Search Agent
+# Raman Spectroscopy ML Pipeline
 
-AI-агент для автоматического поиска и сбора датасетов по Raman/SERS спектроскопии для машинного обучения.
+ML-пайплайн для классификации материалов по Raman-спектрам. Реализован как набор Claude Code Skills с 4 агентами и human-in-the-loop.
 
-## Что делает агент
+## 1. Описание задачи и датасета
 
-1. **Ищет датасеты** на Kaggle, HuggingFace, Google и DuckDuckGo по заданному запросу
-2. **Показывает результаты** в виде таблицы с описаниями
-3. **Human-in-the-loop** — вы выбираете какие датасеты скачать
-4. **Скачивает данные** из выбранных источников (Kaggle API, HuggingFace Hub, прямые URL, веб-скрапинг)
+- **Модальность:** Спектральные данные (Raman-спектроскопия)
+- **ML-задача:** Классификация материалов по Raman-спектрам
+- **Классы:** polymer, mineral, organic, inorganic
+- **Объём:** ~300 спектров
+- **Источники:** HuggingFace datasets + synthetic generation (для демонстрации)
+- **Схема данных:** `spectrum` (list[float]), `wavenumber` (list[float]), `label` (str), `source` (str), `collected_at` (str)
 
-## Установка
+## 2. Архитектура: 4 агента
+
+```
+Spectrum Collector → Data Detective → Spectrum Labeler → Active Learner
+   (сбор данных)     (чистка)          (авторазметка)      (AL-отбор)
+                                           │
+                                      ❗ HITL точка
+                                     (ручная правка)
+```
+
+| Агент | Назначение | Ключевые методы |
+|-------|-----------|-----------------|
+| **Spectrum Collector** | Сбор из 2+ источников, унификация схемы, EDA | search, unify, eda |
+| **Data Detective** | Детекция проблем, 3 стратегии чистки | detect_issues, fix, compare |
+| **Spectrum Labeler** | Авторазметка через Mistral API, confidence scoring | auto_label, generate_spec, export_labelstudio |
+| **Active Learner** | AL-цикл: entropy vs random, learning curves | fit, query, evaluate, report |
+
+## 3. Human-in-the-Loop
+
+**Основная HITL точка:** после авторазметки (Step 3)
+
+1. Агент размечает спектры через Mistral API с confidence score
+2. Примеры с `confidence < 0.7` → `data/labeled/review_queue.csv`
+3. Человек открывает CSV, проверяет метки, заполняет `corrected_label`
+4. Сохраняет как `review_queue_corrected.csv`
+5. Пайплайн загружает исправления и объединяет с уверенными метками
+
+**Дополнительные HITL точки:**
+- Выбор стратегии чистки (Step 2)
+- Подтверждение классов и задачи (Step 3)
+- Подтверждение настроек AL (Step 4)
+
+## 4. Запуск
+
+### Установка
 
 ```bash
+# Создать виртуальное окружение
+python -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+
+# Установить зависимости
 pip install -r requirements.txt
-```
 
-### Переменные окружения
-
-Скопируйте `.env.example` в `.env` и заполните:
-
-```bash
+# Настроить API ключи
 cp .env.example .env
+# Заполнить MISTRAL_API_KEY в .env
 ```
 
-| Переменная | Обязательна | Описание |
-|------------|-------------|----------|
-| `MISTRAL_API_KEY` | Да | API ключ Mistral (бесплатно: https://console.mistral.ai/) |
-| `KAGGLE_USERNAME` | Нет | Логин Kaggle (для поиска на Kaggle) |
-| `KAGGLE_KEY` | Нет | API ключ Kaggle |
-| `HF_TOKEN` | Нет | Токен HuggingFace (для приватных датасетов) |
-
-## Использование
-
-### Как standalone агент
+### Запуск пайплайна
 
 ```bash
-# Поиск по умолчанию (Raman/SERS)
-python -m agent
+# Полный пайплайн
+python run_pipeline.py
 
-# Поиск по конкретному запросу
-python -m agent "SERS nanoparticles bacteria detection dataset"
+# С параметрами
+python run_pipeline.py --config config.yaml
 
-# С указанием директории для скачивания
-python -m agent "Raman mineral classification" --download-dir ./my_data
+# Пропустить шаги (если данные уже собраны)
+python run_pipeline.py --skip-collection --skip-labeling
 ```
 
-### Как Claude Code skill
+### Запуск отдельных агентов
 
-В Claude Code выполните:
-```
-/find-datasets SERS bacteria detection
-```
+```bash
+# 1. Поиск датасетов
+.venv/bin/python spectrum-collector/scripts/search_datasets.py --query "raman spectroscopy"
 
-## Архитектура
+# 2. Детекция проблем
+.venv/bin/python data-detective/scripts/detective.py --input data/raw/combined.parquet
 
-```
-User Query
-    │
-    ▼
-Mistral LLM (system prompt + tools)
-    │
-    ├─► search_kaggle()
-    ├─► search_huggingface()
-    ├─► search_web()         (DuckDuckGo)
-    └─► search_google()      (Google scraping)
-        │
-        ▼ (результаты)
-    ┌───────────────┐
-    │ scrape_url()  │ ← исследование найденных страниц
-    └───────────────┘
-        │
-        ▼
-    present_datasets() → Таблица в терминале
-        │
-        ▼
-    User выбирает (1, 3, 5)
-        │
-        ▼
-    download_dataset() → ./downloads/
+# 3. Чистка данных
+.venv/bin/python data-detective/scripts/cleaner.py --input data/raw/combined.parquet --output data/cleaned/cleaned.parquet --strategy balanced
+
+# 4. Авторазметка
+.venv/bin/python spectrum-labeler/scripts/auto_labeler.py --input data/cleaned/cleaned.parquet --output data/labeled/labeled.parquet --classes "polymer,mineral,organic,inorganic"
+
+# 5. Active Learning
+.venv/bin/python active-learner/scripts/al_agent.py --input data/labeled/labeled.parquet --output-dir data/active
+
+# 6. Визуализация AL
+.venv/bin/python active-learner/scripts/visualize.py --entropy data/active/history_entropy.json --random data/active/history_random.json
 ```
 
-## Инструменты агента
-
-| Tool | Описание |
-|------|----------|
-| `search_kaggle` | Поиск по Kaggle Datasets API |
-| `search_huggingface` | Поиск по HuggingFace Hub API |
-| `search_web` | Поиск через DuckDuckGo |
-| `search_google` | Поиск через Google (веб-скрапинг) |
-| `scrape_url` | Парсинг веб-страниц (BeautifulSoup) |
-| `present_datasets` | Показ результатов + выбор пользователя (human-in-the-loop) |
-| `download_dataset` | Скачивание (Kaggle/HuggingFace/URL) |
-
-## Структура проекта
+## 5. Структура проекта
 
 ```
-├── agent/
-│   ├── main.py            # Точка входа CLI
-│   ├── loop.py            # Агентский цикл (Mistral API + tool_use)
-│   ├── prompts.py         # Системный промпт
-│   ├── ui.py              # Rich UI для терминала
+├── spectrum-collector/          # Skill 1: сбор данных
+│   ├── SKILL.md
+│   └── scripts/
+│       ├── search_datasets.py
+│       ├── unify_schema.py
+│       ├── eda_analysis.py
+│       └── generate_report.py
+├── data-detective/              # Skill 2: качество данных
+│   ├── SKILL.md
+│   └── scripts/
+│       ├── detective.py
+│       ├── cleaner.py
+│       └── compare.py
+├── spectrum-labeler/            # Skill 3: авторазметка
+│   ├── SKILL.md
+│   └── scripts/
+│       └── auto_labeler.py
+├── active-learner/              # Skill 4: Active Learning
+│   ├── SKILL.md
+│   └── scripts/
+│       ├── al_agent.py
+│       └── visualize.py
+├── raman-pipeline/              # Skill 5: оркестрация
+│   └── SKILL.md
+├── agent/                       # Оригинальный Mistral-агент для поиска
+│   ├── main.py
+│   ├── loop.py
+│   ├── prompts.py
+│   ├── ui.py
 │   └── tools/
-│       ├── kaggle_search.py
-│       ├── huggingface_search.py
-│       ├── web_search.py
-│       ├── google_search.py
-│       ├── web_scrape.py
-│       └── present_datasets.py
-├── .claude/commands/
-│   └── find-datasets.md   # Claude Code slash command (skill)
-├── .env.example            # Шаблон переменных окружения
-├── downloads/              # Скачанные датасеты (gitignored)
-└── requirements.txt
+├── run_pipeline.py              # Единая точка входа
+├── config.yaml                  # Конфигурация
+├── requirements.txt
+├── PIPELINE_GUIDE.md            # Универсальный гайд
+├── data/
+│   ├── raw/                     # Сырые данные
+│   ├── cleaned/                 # Очищенные данные
+│   ├── labeled/                 # Размеченные данные
+│   └── active/                  # Результаты AL
+├── models/                      # Обученная модель
+└── reports/                     # Отчёты
+    ├── quality_report.md
+    ├── annotation_report.md
+    ├── al_report.md
+    └── final_report.md
 ```
+
+## Data Card
+
+| Поле | Значение |
+|------|---------|
+| Название | Raman Spectroscopy Materials Dataset |
+| Модальность | Спектральные данные (1D signal) |
+| Размер | ~300 спектров, 500 точек каждый |
+| Классы | polymer, mineral, organic, inorganic |
+| Формат | Parquet (pandas DataFrame) |
+| Схема | spectrum, wavenumber, label, source, collected_at, confidence |
+| Разметка | Автоматическая (Mistral API) + ручная проверка (HITL) |
+| Лицензия | MIT |
+
+## Технологии
+
+- **LLM:** Mistral API (авторазметка спектров)
+- **ML:** scikit-learn (LogisticRegression, PCA)
+- **Оркестрация:** Claude Code Skills
+- **Данные:** pandas, parquet
+- **Визуализация:** matplotlib

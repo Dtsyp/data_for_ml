@@ -1,0 +1,46 @@
+# Raman Spectroscopy ML Pipeline Configuration
+
+# ML Task
+task:
+  name: "Material classification from Raman spectra"
+  modality: "spectral"
+  classes:
+    - "polymer"
+    - "mineral"
+    - "organic"
+    - "inorganic"
+
+# Data sources
+sources:
+  - type: "hf_dataset"
+    name: "raman_spectra"
+    query: "raman spectroscopy"
+  - type: "scrape"
+    url: "https://rruff.info"
+    description: "RRUFF Raman spectroscopy database"
+
+# Data quality
+cleaning:
+  strategy: "balanced"  # aggressive | conservative | balanced
+
+# Annotation
+labeling:
+  llm: "mistral"
+  model: "mistral-small-latest"
+  confidence_threshold: 0.7
+  max_samples: 500
+
+# Active Learning
+active_learning:
+  seed_size: 50
+  n_iterations: 5
+  batch_size: 20
+  strategy: "entropy"
+  n_components: 50  # PCA components
+
+# Pipeline
+pipeline:
+  save_intermediates: true
+  data_dir: "data"
+  models_dir: "models"
+  reports_dir: "reports"
