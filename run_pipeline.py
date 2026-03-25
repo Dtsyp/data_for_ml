@@ -787,12 +787,13 @@ def main():
     step_0_setup()
     _lazy_imports()
 
+    config = load_config(args.config)
+
+    task_name = config["task"]["name"]
     print("=" * 60)
-    print("  RAMAN SPECTROSCOPY ML PIPELINE")
+    print(f"  ML PIPELINE: {task_name}")
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
-
-    config = load_config(args.config)
 
     # Setup imports
     setup_imports()
