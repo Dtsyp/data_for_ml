@@ -111,6 +111,62 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
+def interactive_setup(config: dict) -> dict:
+    """Ask user for task, classes, and search query if not in config."""
+    print("=" * 60)
+    print("  PROJECT SETUP")
+    print("=" * 60)
+
+    # Task name
+    default_task = config.get("task", {}).get("name", "")
+    try:
+        task = input(f"  ML task description [{default_task}]: ").strip()
+    except EOFError:
+        task = ""
+    if not task:
+        task = default_task or "Data classification"
+    config.setdefault("task", {})["name"] = task
+
+    # Classes
+    default_classes = config.get("task", {}).get("classes", [])
+    default_str = ",".join(default_classes) if default_classes else ""
+    try:
+        classes_input = input(f"  Classes (comma-separated) [{default_str}]: ").strip()
+    except EOFError:
+        classes_input = ""
+    if classes_input:
+        config["task"]["classes"] = [c.strip() for c in classes_input.split(",")]
+    elif not default_classes:
+        config["task"]["classes"] = ["class_a", "class_b", "class_c"]
+
+    # Search query
+    default_query = config.get("search_query", "")
+    try:
+        query = input(f"  Search query for datasets [{default_query}]: ").strip()
+    except EOFError:
+        query = ""
+    config["search_query"] = query or default_query or config["task"]["name"]
+
+    print(f"\n  Task: {config['task']['name']}")
+    print(f"  Classes: {config['task']['classes']}")
+    print(f"  Search query: {config['search_query']}")
+
+    # Ensure other sections exist with defaults
+    config.setdefault("cleaning", {}).setdefault("strategy", "balanced")
+    config.setdefault("labeling", {}).setdefault("confidence_threshold", 0.7)
+    config.setdefault("labeling", {}).setdefault("max_samples", 500)
+    config.setdefault("active_learning", {}).setdefault("seed_size", 50)
+    config.setdefault("active_learning", {}).setdefault("n_iterations", 5)
+    config.setdefault("active_learning", {}).setdefault("batch_size", 20)
+    config.setdefault("active_learning", {}).setdefault("n_components", 50)
+    config.setdefault("pipeline", {}).setdefault("data_dir", "data")
+    config.setdefault("pipeline", {}).setdefault("models_dir", "models")
+    config.setdefault("pipeline", {}).setdefault("reports_dir", "reports")
+    config.setdefault("sources", [])
+
+    return config
+
+
 def step_1_collect(config: dict) -> pd.DataFrame:
     """Step 1: Collect and unify data from multiple sources."""
     print("\n" + "=" * 60)
@@ -128,27 +184,14 @@ def step_1_collect(config: dict) -> pd.DataFrame:
         print(f"  Loaded {len(df)} rows")
         return df
 
-    # Get search query from config or ask user
-    task_name = config["task"]["name"]
-    default_query = config.get("sources", [{}])[0].get("query", "raman spectroscopy")
     classes = config["task"]["classes"]
-
-    print(f"  Task: {task_name}")
-    print(f"  Classes: {classes}")
-    print(f"  Default search query: '{default_query}'")
-
-    try:
-        user_query = input(f"  Enter search query [{default_query}]: ").strip()
-        if user_query:
-            default_query = user_query
-    except EOFError:
-        pass
+    search_query = config.get("search_query", config["task"]["name"])
 
     # Search real datasets across all sources
-    print(f"\n  Searching datasets for: '{default_query}'...")
+    print(f"  Searching datasets for: '{search_query}'...")
     try:
         from spectrum_collector_scripts.search_datasets import search_all, print_results_table
-        results = search_all(default_query)
+        results = search_all(search_query)
         if results:
             print_results_table(results)
             print(f"\n  Found {len(results)} datasets from {len(set(r['source'] for r in results))} sources")
@@ -789,8 +832,11 @@ def main():
 
     config = load_config(args.config)
 
+    # Interactive setup: ask user for task, classes, search query
+    config = interactive_setup(config)
+
     task_name = config["task"]["name"]
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print(f"  ML PIPELINE: {task_name}")
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)

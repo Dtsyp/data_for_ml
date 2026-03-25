@@ -1,23 +1,5 @@
-# Raman Spectroscopy ML Pipeline Configuration
-
-# ML Task
-task:
-  name: "Material classification from Raman spectra"
-  modality: "spectral"
-  classes:
-    - "polymer"
-    - "mineral"
-    - "organic"
-    - "inorganic"
-
-# Data sources
-sources:
-  - type: "hf_dataset"
-    name: "raman_spectra"
-    query: "raman spectroscopy"
-  - type: "scrape"
-    url: "https://rruff.info"
-    description: "RRUFF Raman spectroscopy database"
+# ML Data Pipeline Configuration
+# Task, classes, and search query are asked interactively at runtime
 
 # Data quality
 cleaning:
