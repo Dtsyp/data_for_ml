@@ -123,6 +123,12 @@ def interactive_setup(config: dict) -> dict:
     config.setdefault("pipeline", {}).setdefault("models_dir", "models")
     config.setdefault("pipeline", {}).setdefault("reports_dir", "reports")
     config.setdefault("sources", [])
+
+    # Save user choices to config so --skip-collection remembers them
+    import yaml
+    with open(str(PROJECT_DIR / "config.yaml"), "w") as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
     return config
 
 
