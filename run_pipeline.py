@@ -460,7 +460,10 @@ def main():
     f1 = f1_score(y_te, y_pred, average="weighted")
 
     print(f"\n  Accuracy: {acc:.4f}, F1: {f1:.4f}")
-    print(classification_report(y_te, y_pred, target_names=le.classes_, zero_division=0))
+    # Use labels parameter to handle mismatched classes in train/test
+    all_labels = sorted(set(y_te) | set(y_pred))
+    target_names = [le.classes_[i] for i in all_labels]
+    print(classification_report(y_te, y_pred, labels=all_labels, target_names=target_names, zero_division=0))
 
     models_dir = config["pipeline"]["models_dir"]
     os.makedirs(models_dir, exist_ok=True)
@@ -470,7 +473,7 @@ def main():
     metrics = {"accuracy": round(acc, 4), "f1_weighted": round(f1, 4),
                "n_train": X_tr.shape[0], "n_test": X_te.shape[0],
                "classes": list(le.classes_),
-               "classification_report": classification_report(y_te, y_pred, target_names=le.classes_, output_dict=True, zero_division=0)}
+               "classification_report": classification_report(y_te, y_pred, labels=all_labels, target_names=target_names, output_dict=True, zero_division=0)}
     with open(os.path.join(models_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 
