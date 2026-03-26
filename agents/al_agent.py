@@ -152,9 +152,11 @@ achieving better or equal model quality with fewer labeled examples.
         output_dir = os.path.join(self.config.get("pipeline", {}).get("data_dir", "data"), "active")
         os.makedirs(output_dir, exist_ok=True)
 
-        df = labeled_df.dropna(subset=["label", "text"])
+        df = labeled_df.copy()
+        df["label"] = df["label"].astype(str)
+        df = df[df["label"].notna() & (df["label"] != "") & (df["label"] != "nan") & (df["label"] != "None")]
         df = df[df["label"] != "unknown"]
-        df = df[df["text"].str.strip().str.len() > 0]
+        df = df[df["text"].astype(str).str.strip().str.len() > 0]
         if "confidence" in df.columns:
             df = df[df["confidence"] >= 0.5]
 

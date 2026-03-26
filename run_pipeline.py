@@ -396,8 +396,9 @@ def main():
             corrected_path = os.path.join(labeled_dir, "review_queue_corrected.csv")
             if os.path.exists(corrected_path):
                 for _, row in pd.read_csv(corrected_path).iterrows():
-                    if row.get("corrected_label") and str(row["corrected_label"]).strip():
-                        df_labeled.loc[row["index"], "label"] = row["corrected_label"]
+                    cl = row.get("corrected_label")
+                    if cl and str(cl).strip() and str(cl).strip() not in ("nan", "None", ""):
+                        df_labeled.loc[row["index"], "label"] = str(cl).strip()
                         df_labeled.loc[row["index"], "confidence"] = 1.0
                 print("  Applied corrections")
 
@@ -442,9 +443,11 @@ def main():
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import LabelEncoder
 
-    df_final = df_labeled.dropna(subset=["label","text"])
+    df_final = df_labeled.copy()
+    df_final["label"] = df_final["label"].astype(str)
+    df_final = df_final[df_final["label"].notna() & (df_final["label"] != "") & (df_final["label"] != "nan") & (df_final["label"] != "None")]
     df_final = df_final[df_final["label"] != "unknown"]
-    df_final = df_final[df_final["text"].str.strip().str.len() > 0]
+    df_final = df_final[df_final["text"].astype(str).str.strip().str.len() > 0]
     if "confidence" in df_final.columns:
         df_final = df_final[df_final["confidence"] >= 0.5]
 
