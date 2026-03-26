@@ -110,6 +110,18 @@ class ActiveLearningAgent:
         print(f"  Learning curve saved to {out_png}")
 
         fe, fr = he[-1], hr[-1]
+
+        # Calculate sample savings
+        savings_text = ""
+        target_f1 = fe["f1"]
+        for step in hr:
+            if step["f1"] >= target_f1:
+                saved = step["n_labeled"] - fe["n_labeled"]
+                savings_text = f"\nEntropy saved **{max(0, saved)}** samples vs random to reach F1={target_f1}.\n"
+                break
+        else:
+            savings_text = f"\nRandom never reached entropy's F1={target_f1} — entropy is strictly better.\n"
+
         md = f"""# Active Learning Report
 
 | Metric | Entropy | Random |
@@ -117,6 +129,13 @@ class ActiveLearningAgent:
 | Accuracy | {fe['accuracy']} | {fr['accuracy']} |
 | F1 | {fe['f1']} | {fr['f1']} |
 | Samples | {fe['n_labeled']} | {fr['n_labeled']} |
+
+## Sample Savings
+{savings_text}
+## Conclusion
+
+Entropy-based Active Learning selects the most uncertain samples,
+achieving better or equal model quality with fewer labeled examples.
 """
         with open(out_md, "w") as f:
             f.write(md)

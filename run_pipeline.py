@@ -218,12 +218,15 @@ def main():
 
     collector = DataCollectionAgent(config=config)
 
+    raw_path = os.path.join(data_dir, "raw", "combined.parquet")
+
     if args.skip_collection:
-        df = pd.read_parquet(os.path.join(data_dir, "raw", "combined.parquet"))
+        df = pd.read_parquet(raw_path)
         print(f"  Skipped. Loaded {len(df)} rows")
     else:
         query = config.get("search_query", task_name)
         print(f"  Searching: '{query}'...")
+        results = []
         try:
             results = collector.search(query)
             if results:
@@ -232,15 +235,43 @@ def main():
         except Exception as e:
             print(f"  Search note: {e}")
 
-        sources = config.get("sources", [])
-        if sources:
-            df = collector.run(sources)
+        # HITL: user selects which datasets to download
+        sources_to_load = []
+        if results:
+            print("\n  Which datasets to download?")
+            print("  Enter numbers separated by commas (e.g. 1,3,5)")
+            print("  Or press Enter to skip and use demo data")
+            try:
+                selection = input("  Your choice: ").strip()
+            except EOFError:
+                selection = ""
+
+            if selection:
+                for num_str in selection.split(","):
+                    try:
+                        idx = int(num_str.strip()) - 1
+                        if 0 <= idx < len(results):
+                            r = results[idx]
+                            if r["source"] == "huggingface":
+                                sources_to_load.append({"type": "hf_dataset", "name": r["name"]})
+                            elif r["source"] == "kaggle":
+                                sources_to_load.append({"type": "kaggle_dataset", "name": r["name"]})
+                            elif r["source"] in ("web", "google_scholar"):
+                                sources_to_load.append({"type": "scrape", "url": r["url"]})
+                    except ValueError:
+                        pass
+
+        # Also add sources from config
+        sources_to_load.extend(config.get("sources", []))
+
+        if sources_to_load:
+            print(f"\n  Downloading {len(sources_to_load)} source(s)...")
+            df = collector.run(sources_to_load)
         else:
-            print(f"\n  Generating demo dataset for: {config['task']['classes']}...")
+            print(f"\n  No sources selected. Generating demo dataset for: {config['task']['classes']}...")
             df = generate_demo_dataset(classes=config["task"]["classes"])
-            raw_dir = os.path.join(data_dir, "raw")
-            os.makedirs(raw_dir, exist_ok=True)
-            df.to_parquet(os.path.join(raw_dir, "combined.parquet"), index=False)
+            os.makedirs(os.path.join(data_dir, "raw"), exist_ok=True)
+            df.to_parquet(raw_path, index=False)
             print(f"  Saved {len(df)} rows")
             collector.run_eda(df, os.path.join(data_dir, "eda"))
 
