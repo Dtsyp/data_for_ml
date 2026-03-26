@@ -87,16 +87,13 @@ class DataCollectionAgent:
 
         return self._unify(df, source_name=f"api:{endpoint}")
 
-    def load_dataset(self, name: str, source: str = "hf", max_rows: int = 500) -> pd.DataFrame:
-        """Load a dataset from HuggingFace or Kaggle. Limited to max_rows for efficiency."""
+    def load_dataset(self, name: str, source: str = "hf") -> pd.DataFrame:
+        """Load a dataset from HuggingFace or Kaggle."""
         if source == "hf":
             try:
                 from datasets import load_dataset as hf_load
                 ds = hf_load(name, split="train")
                 df = ds.to_pandas()
-                if len(df) > max_rows:
-                    df = df.sample(n=max_rows, random_state=42)
-                    print(f"    Sampled {max_rows} rows from {len(ds)} total")
                 return self._unify(df, source_name=f"hf:{name}")
             except Exception as e:
                 print(f"  [HF] Error loading {name}: {e}")
