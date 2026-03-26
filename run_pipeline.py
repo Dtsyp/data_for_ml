@@ -389,6 +389,8 @@ def main():
     from sklearn.preprocessing import LabelEncoder
 
     df_final = df_labeled.dropna(subset=["label","text"])
+    df_final = df_final[df_final["label"] != "unknown"]
+    df_final = df_final[df_final["text"].str.strip().str.len() > 0]
     if "confidence" in df_final.columns:
         df_final = df_final[df_final["confidence"] >= 0.5]
 
@@ -404,7 +406,7 @@ def main():
     f1 = f1_score(y_te, y_pred, average="weighted")
 
     print(f"\n  Accuracy: {acc:.4f}, F1: {f1:.4f}")
-    print(classification_report(y_te, y_pred, target_names=le.classes_))
+    print(classification_report(y_te, y_pred, target_names=le.classes_, zero_division=0))
 
     models_dir = config["pipeline"]["models_dir"]
     os.makedirs(models_dir, exist_ok=True)
@@ -414,7 +416,7 @@ def main():
     metrics = {"accuracy": round(acc, 4), "f1_weighted": round(f1, 4),
                "n_train": X_tr.shape[0], "n_test": X_te.shape[0],
                "classes": list(le.classes_),
-               "classification_report": classification_report(y_te, y_pred, target_names=le.classes_, output_dict=True)}
+               "classification_report": classification_report(y_te, y_pred, target_names=le.classes_, output_dict=True, zero_division=0)}
     with open(os.path.join(models_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 

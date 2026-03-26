@@ -153,6 +153,8 @@ achieving better or equal model quality with fewer labeled examples.
         os.makedirs(output_dir, exist_ok=True)
 
         df = labeled_df.dropna(subset=["label", "text"])
+        df = df[df["label"] != "unknown"]
+        df = df[df["text"].str.strip().str.len() > 0]
         if "confidence" in df.columns:
             df = df[df["confidence"] >= 0.5]
 
