@@ -149,13 +149,19 @@ class DataCollectionAgent:
             dfs.append(df)
 
         merged = self.merge(dfs)
+
+        if len(merged) == 0:
+            print("  ⚠ WARNING: No data collected! Check your source selection.")
+            return merged
+
         raw_dir = os.path.join(self.config.get("pipeline", {}).get("data_dir", "data"), "raw")
         os.makedirs(raw_dir, exist_ok=True)
         merged.to_parquet(os.path.join(raw_dir, "combined.parquet"), index=False)
         print(f"  Saved {len(merged)} rows")
 
         eda_dir = os.path.join(self.config.get("pipeline", {}).get("data_dir", "data"), "eda")
-        self.run_eda(merged, eda_dir)
+        if len(merged) > 0:
+            self.run_eda(merged, eda_dir)
 
         return merged
 

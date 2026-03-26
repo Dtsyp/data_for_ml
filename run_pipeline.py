@@ -276,21 +276,30 @@ def main():
 
             if selection:
                 for num_str in selection.split(","):
+                    num_str = num_str.strip()
+                    if not num_str:
+                        continue
                     try:
-                        idx = int(num_str.strip()) - 1
-                        if 0 <= idx < len(results):
-                            r = results[idx]
-                            if r["source"] == "huggingface":
-                                sources_to_load.append({"type": "hf_dataset", "name": r["name"]})
-                                print(f"    + HuggingFace: {r['name']}")
-                            elif r["source"] == "kaggle":
-                                sources_to_load.append({"type": "kaggle_dataset", "name": r["name"]})
-                                print(f"    + Kaggle: {r['name']}")
-                            elif r["source"] in ("web", "google_scholar"):
-                                sources_to_load.append({"type": "scrape", "url": r["url"]})
-                                print(f"    + Web scrape: {r['url']}")
+                        idx = int(num_str) - 1
                     except ValueError:
-                        pass
+                        print(f"    ⚠ Invalid number: '{num_str}'")
+                        continue
+                    if idx < 0 or idx >= len(results):
+                        print(f"    ⚠ Number {idx+1} out of range (1-{len(results)})")
+                        continue
+                    r = results[idx]
+                    src = r.get("source", "unknown")
+                    if src == "huggingface":
+                        sources_to_load.append({"type": "hf_dataset", "name": r["name"]})
+                        print(f"    + [{idx+1}] HuggingFace: {r['name']}")
+                    elif src == "kaggle":
+                        sources_to_load.append({"type": "kaggle_dataset", "name": r["name"]})
+                        print(f"    + [{idx+1}] Kaggle: {r['name']}")
+                    elif src in ("web", "google_scholar"):
+                        sources_to_load.append({"type": "scrape", "url": r["url"]})
+                        print(f"    + [{idx+1}] Web scrape: {r['url'][:80]}")
+                    else:
+                        print(f"    ⚠ [{idx+1}] Unknown source type: {src}")
 
         # Also add sources from config
         sources_to_load.extend(config.get("sources", []))
@@ -306,6 +315,10 @@ def main():
             if n_unknown == len(df) and len(df) > 0:
                 print(f"  ⚠ WARNING: All labels are 'unknown'. Web scraping doesn't provide labels.")
                 print(f"  Tip: select a HuggingFace dataset (source=huggingface) for labeled data.")
+
+            if len(df) == 0:
+                print("\n  ❌ No data collected. Please restart and select a HuggingFace dataset.")
+                sys.exit(1)
         else:
             print(f"\n  No sources selected. Generating demo dataset for: {config['task']['classes']}...")
             df = generate_demo_dataset(classes=config["task"]["classes"])
