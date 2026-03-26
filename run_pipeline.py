@@ -187,6 +187,8 @@ def main():
     parser.add_argument("--skip-collection", action="store_true")
     parser.add_argument("--skip-labeling", action="store_true")
     parser.add_argument("--skip-al", action="store_true")
+    parser.add_argument("--rerun", action="store_true",
+                        help="Rerun from labeling step (after HITL corrections). Skips collection and cleaning.")
     args = parser.parse_args()
 
     step_0_setup()
@@ -200,7 +202,27 @@ def main():
 
     with open(args.config) as f:
         config = yaml.safe_load(f) or {}
-    config = interactive_setup(config)
+
+    if args.rerun:
+        args.skip_collection = True
+        # Use saved config without asking
+        config.setdefault("task", {}).setdefault("name", "Data classification")
+        config.setdefault("task", {}).setdefault("classes", ["class_a", "class_b"])
+        config.setdefault("cleaning", {}).setdefault("strategy", "balanced")
+        config.setdefault("labeling", {}).setdefault("confidence_threshold", 0.7)
+        config.setdefault("labeling", {}).setdefault("max_samples", 500)
+        config.setdefault("active_learning", {}).setdefault("seed_size", 50)
+        config.setdefault("active_learning", {}).setdefault("n_iterations", 5)
+        config.setdefault("active_learning", {}).setdefault("batch_size", 20)
+        config.setdefault("pipeline", {}).setdefault("data_dir", "data")
+        config.setdefault("pipeline", {}).setdefault("models_dir", "models")
+        config.setdefault("pipeline", {}).setdefault("reports_dir", "reports")
+        config.setdefault("sources", [])
+        print(f"  Rerun mode: using saved config")
+        print(f"  Task: {config['task']['name']}")
+        print(f"  Classes: {config['task']['classes']}")
+    else:
+        config = interactive_setup(config)
 
     task_name = config["task"]["name"]
     print("\n" + "=" * 60)
@@ -282,25 +304,33 @@ def main():
             collector.run_eda(df, os.path.join(data_dir, "eda"))
 
     # ── Step 2: Quality ──────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("STEP 2: DATA QUALITY CHECK")
-    print("=" * 60)
+    if args.rerun:
+        cleaned_path = os.path.join(data_dir, "cleaned", "cleaned.parquet")
+        if os.path.exists(cleaned_path):
+            df_clean = pd.read_parquet(cleaned_path)
+            print(f"\n  Step 2: Skipped (rerun). Loaded {len(df_clean)} cleaned rows")
+        else:
+            df_clean = df
+    else:
+        print("\n" + "=" * 60)
+        print("STEP 2: DATA QUALITY CHECK")
+        print("=" * 60)
 
-    quality_agent = DataQualityAgent(config=config)
-    issues = quality_agent.detect_issues(df)
-    print(f"\n  Missing: {issues['missing']}, Duplicates: {issues['duplicates']}, "
-          f"Outliers: {issues['outliers']['total']}, Imbalance: {issues['imbalance']['imbalance_ratio']}x")
+        quality_agent = DataQualityAgent(config=config)
+        issues = quality_agent.detect_issues(df)
+        print(f"\n  Missing: {issues['missing']}, Duplicates: {issues['duplicates']}, "
+              f"Outliers: {issues['outliers']['total']}, Imbalance: {issues['imbalance']['imbalance_ratio']}x")
 
-    strategy = config["cleaning"]["strategy"]
-    try:
-        s = input(f"  Strategy [{strategy}]: ").strip()
-        if s in ("aggressive", "conservative", "balanced"): strategy = s
-    except EOFError: pass
+        strategy = config["cleaning"]["strategy"]
+        try:
+            s = input(f"  Strategy [{strategy}]: ").strip()
+            if s in ("aggressive", "conservative", "balanced"): strategy = s
+        except EOFError: pass
 
-    df_clean = quality_agent.fix(df, strategy=strategy)
-    comparison = quality_agent.compare(df, df_clean)
-    with open(os.path.join(reports_dir, "quality_report.md"), "w") as f:
-        f.write(comparison)
+        df_clean = quality_agent.fix(df, strategy=strategy)
+        comparison = quality_agent.compare(df, df_clean)
+        with open(os.path.join(reports_dir, "quality_report.md"), "w") as f:
+            f.write(comparison)
 
     # ── Step 3: Labeling ─────────────────────────────────────────
     print("\n" + "=" * 60)
