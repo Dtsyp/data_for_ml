@@ -282,10 +282,13 @@ def main():
                             r = results[idx]
                             if r["source"] == "huggingface":
                                 sources_to_load.append({"type": "hf_dataset", "name": r["name"]})
+                                print(f"    + HuggingFace: {r['name']}")
                             elif r["source"] == "kaggle":
                                 sources_to_load.append({"type": "kaggle_dataset", "name": r["name"]})
+                                print(f"    + Kaggle: {r['name']}")
                             elif r["source"] in ("web", "google_scholar"):
                                 sources_to_load.append({"type": "scrape", "url": r["url"]})
+                                print(f"    + Web scrape: {r['url']}")
                     except ValueError:
                         pass
 
