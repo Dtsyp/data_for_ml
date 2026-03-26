@@ -328,6 +328,15 @@ def main():
             collector.run_eda(df, os.path.join(data_dir, "eda"))
 
     # ── Step 2: Quality ──────────────────────────────────────────
+    issues = {}
+    strategy = config.get("cleaning", {}).get("strategy", "balanced")
+
+    # Try to load saved issues from previous run
+    problems_path = os.path.join(data_dir, "detective", "problems.json")
+    if os.path.exists(problems_path):
+        with open(problems_path) as f:
+            issues = json.load(f)
+
     if args.rerun:
         cleaned_path = os.path.join(data_dir, "cleaned", "cleaned.parquet")
         if os.path.exists(cleaned_path):
@@ -345,7 +354,6 @@ def main():
         print(f"\n  Missing: {issues['missing']}, Duplicates: {issues['duplicates']}, "
               f"Outliers: {issues['outliers']['total']}, Imbalance: {issues['imbalance']['imbalance_ratio']}x")
 
-        strategy = config["cleaning"]["strategy"]
         try:
             s = input(f"  Strategy [{strategy}]: ").strip()
             if s in ("aggressive", "conservative", "balanced"): strategy = s
@@ -397,8 +405,14 @@ def main():
             if os.path.exists(corrected_path):
                 for _, row in pd.read_csv(corrected_path).iterrows():
                     cl = row.get("corrected_label")
-                    if cl and str(cl).strip() and str(cl).strip() not in ("nan", "None", ""):
-                        df_labeled.loc[row["index"], "label"] = str(cl).strip()
+                    if cl is not None and str(cl).strip() not in ("nan", "None", ""):
+                        # Normalize: "1.0" → "1", "0.0" → "0"
+                        cl_str = str(cl).strip()
+                        try:
+                            cl_str = str(int(float(cl_str)))
+                        except (ValueError, OverflowError):
+                            pass
+                        df_labeled.loc[row["index"], "label"] = cl_str
                         df_labeled.loc[row["index"], "confidence"] = 1.0
                 print("  Applied corrections")
 
@@ -491,11 +505,11 @@ def main():
 - **Modality:** Text
 - **ML Task:** {task_name}
 - **Classes:** {', '.join(config['task']['classes'])}
-- **Total samples:** {issues.get('total_rows', 'N/A')}
+- **Total samples:** {issues.get('total_rows', len(df_labeled))}
 
 ## 2. Agent Actions
 - **DataCollectionAgent:** Searched 4 sources, collected data, ran EDA
-- **DataQualityAgent:** Found {issues.get('duplicates',0)} duplicates, {issues['outliers']['total']} outliers. Strategy: {strategy}
+- **DataQualityAgent:** Found {issues.get('duplicates',0)} duplicates, {issues.get('outliers',{}).get('total',0)} outliers. Strategy: {strategy}
 - **AnnotationAgent:** Labeled {qm.get('total_labeled','N/A')} samples, mean confidence: {qm.get('mean_confidence','N/A')}
 - **ActiveLearningAgent:** Compared entropy vs random strategies
 
