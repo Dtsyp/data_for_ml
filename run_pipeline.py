@@ -298,6 +298,14 @@ def main():
         if sources_to_load:
             print(f"\n  Downloading {len(sources_to_load)} source(s)...")
             df = collector.run(sources_to_load)
+
+            # Warn if data is bad
+            n_unknown = (df["label"] == "unknown").sum() if "label" in df.columns else 0
+            if len(df) < 50:
+                print(f"\n  ⚠ WARNING: Only {len(df)} rows collected. Try selecting a HuggingFace dataset.")
+            if n_unknown == len(df) and len(df) > 0:
+                print(f"  ⚠ WARNING: All labels are 'unknown'. Web scraping doesn't provide labels.")
+                print(f"  Tip: select a HuggingFace dataset (source=huggingface) for labeled data.")
         else:
             print(f"\n  No sources selected. Generating demo dataset for: {config['task']['classes']}...")
             df = generate_demo_dataset(classes=config["task"]["classes"])

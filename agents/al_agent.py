@@ -158,10 +158,22 @@ achieving better or equal model quality with fewer labeled examples.
         if "confidence" in df.columns:
             df = df[df["confidence"] >= 0.5]
 
+        # Need at least 2 classes and enough samples
+        if df["label"].nunique() < 2:
+            print(f"  ERROR: Need at least 2 classes, got {df['label'].nunique()}. Skipping AL.")
+            return []
+        if len(df) < seed_size + 10:
+            print(f"  ERROR: Not enough samples ({len(df)}) for seed_size={seed_size}. Skipping AL.")
+            return []
+
         self.le = LabelEncoder()
         y = self.le.fit_transform(df["label"])
-        self.vectorizer = TfidfVectorizer(max_features=5000, stop_words="english")
+        self.vectorizer = TfidfVectorizer(max_features=5000)
         X = self.vectorizer.fit_transform(df["text"].tolist())
+
+        if X.shape[1] == 0:
+            print("  ERROR: Empty vocabulary after TF-IDF. Skipping AL.")
+            return []
 
         print(f"  Classes: {list(self.le.classes_)}")
         print(f"  Samples: {X.shape[0]}")
