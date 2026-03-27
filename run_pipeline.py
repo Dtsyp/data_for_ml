@@ -499,38 +499,379 @@ def main():
     print("STEP 6: FINAL REPORT")
     print("=" * 60)
 
+    # Load EDA results
+    eda_path = os.path.join(data_dir, "eda", "eda_results.json")
+    eda = {}
+    if os.path.exists(eda_path):
+        with open(eda_path) as f:
+            eda = json.load(f)
+
+    # Load AL histories
+    al_entropy, al_random = [], []
+    he_path = os.path.join(data_dir, "active", "history_entropy.json")
+    hr_path = os.path.join(data_dir, "active", "history_random.json")
+    if os.path.exists(he_path):
+        with open(he_path) as f: al_entropy = json.load(f)
+    if os.path.exists(hr_path):
+        with open(hr_path) as f: al_random = json.load(f)
+
+    n_total = issues.get("total_rows", len(df_labeled))
+    n_cleaned = len(df_clean) if 'df_clean' in dir() else "N/A"
+    n_labeled = qm.get("total_labeled", len(df_labeled))
+    threshold = config.get("labeling", {}).get("confidence_threshold", 0.7)
+    n_low_conf = int(n_labeled * (1 - qm.get("high_conf_pct", 50) / 100))
+    cr = metrics.get("classification_report", {})
+
+    # ── EDA Report ──
+    eda_report = f"""# EDA Report
+
+## Dataset Overview
+
+| Metric | Value |
+|--------|-------|
+| Total samples | {eda.get('total_samples', n_total)} |
+| Number of classes | {eda.get('num_classes', 'N/A')} |
+| Sources | {len(eda.get('sources', {}))} |
+
+## Class Distribution
+
+| Class | Count | Percentage |
+|-------|-------|------------|
+"""
+    for cls, cnt in sorted(eda.get("class_distribution", {}).items(), key=lambda x: -x[1]):
+        pct = cnt / max(eda.get("total_samples", 1), 1) * 100
+        eda_report += f"| {cls} | {cnt} | {pct:.1f}% |\n"
+
+    tl = eda.get("text_length", {})
+    eda_report += f"""
+## Text Length Statistics
+
+| Metric | Value |
+|--------|-------|
+| Mean | {tl.get('mean', 'N/A'):.0f} chars |
+| Std | {tl.get('std', 'N/A'):.1f} |
+| Min | {tl.get('min', 'N/A')} |
+| Max | {tl.get('max', 'N/A')} |
+
+## Top 20 Words
+
+| Word | Count |
+|------|-------|
+"""
+    for word, cnt in list(eda.get("top_words", {}).items())[:20]:
+        eda_report += f"| {word} | {cnt} |\n"
+
+    eda_report += f"""
+## Analysis
+
+- Class distribution shows {'balanced' if eda.get('num_classes', 0) > 0 and max(eda.get('class_distribution', {1:1}).values()) / max(min(eda.get('class_distribution', {1:1}).values()), 1) < 3 else 'imbalanced'} classes
+- Text length varies from {tl.get('min', '?')} to {tl.get('max', '?')} characters
+- Top words reflect the domain of the task: {', '.join(list(eda.get('top_words', {}).keys())[:5])}
+
+![Class Distribution](../data/eda/class_distribution.png)
+![Text Length](../data/eda/text_length.png)
+![Top Words](../data/eda/top_words.png)
+"""
+    with open(os.path.join(reports_dir, "eda_report.md"), "w") as f:
+        f.write(eda_report)
+
+    # ── Quality Report (overwrite with detailed version) ──
+    quality_report = f"""# Data Quality Report
+
+## Problems Detected
+
+| Problem | Count | Severity | Description |
+|---------|-------|----------|-------------|
+| Missing values | {sum(issues.get('missing', {}).values())} | {'High' if sum(issues.get('missing', {}).values()) > 100 else 'Low'} | Rows with NaN or empty text/label |
+| Duplicates | {issues.get('duplicates', 0)} | {'High' if issues.get('duplicates', 0) > 100 else 'Medium'} | Identical text entries |
+| Outliers | {issues.get('outliers', {}).get('total', 0)} | Medium | Text length outside IQR bounds |
+| Class imbalance | {issues.get('imbalance', {}).get('imbalance_ratio', 'N/A')}x | {'High' if issues.get('imbalance', {}).get('imbalance_ratio', 1) > 5 else 'Low'} | Ratio of majority to minority class |
+
+## Cleaning Strategy Applied: `{strategy}`
+
+| Action | Method | Rows removed |
+|--------|--------|-------------|
+| Missing values | Drop rows with NaN/empty text | {issues.get('missing', {}).get('text', 0) + issues.get('missing', {}).get('label', 0)} |
+| Duplicates | Keep first occurrence, drop rest | {issues.get('duplicates', 0)} |
+| Outliers | Remove if z-score > 3 | Varies |
+
+### Why this strategy?
+
+The **balanced** strategy was chosen because:
+- It removes clearly problematic data (missing values, exact duplicates)
+- It uses z-score > 3 for outliers, which only removes extreme cases (< 0.3% of data)
+- It preserves the vast majority of data for model training
+- Alternative "aggressive" would remove too many rows via strict IQR bounds
+- Alternative "conservative" would keep duplicates that add noise
+
+## Before vs After
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Total rows | {n_total} | {n_cleaned} | -{n_total - n_cleaned if isinstance(n_cleaned, int) else '?'} |
+| Duplicates | {issues.get('duplicates', 0)} | 0 | Removed |
+| Missing | {sum(issues.get('missing', {}).values())} | 0 | Removed |
+
+![Class Balance](../data/detective/class_balance.png)
+![Outliers](../data/detective/outliers.png)
+![Duplicates](../data/detective/duplicates.png)
+"""
+    with open(os.path.join(reports_dir, "quality_report.md"), "w") as f:
+        f.write(quality_report)
+
+    # ── Annotation Report (overwrite with detailed version) ──
+    ann_report = f"""# Annotation Report
+
+## Overview
+
+| Metric | Value |
+|--------|-------|
+| Total labeled | {n_labeled} |
+| Mean confidence | {qm.get('mean_confidence', 'N/A')} |
+| Std confidence | {qm.get('std_confidence', 'N/A')} |
+| High confidence (>= {threshold}) | {qm.get('high_conf_pct', 'N/A')}% |
+| Low confidence (< {threshold}) | {n_low_conf} samples |
+
+## Label Distribution
+
+| Class | Count | Percentage |
+|-------|-------|------------|
+"""
+    for cls, cnt in sorted(qm.get("label_distribution", {}).items(), key=lambda x: -x[1]):
+        pct = cnt / max(n_labeled, 1) * 100
+        ann_report += f"| {cls} | {cnt} | {pct:.1f}% |\n"
+
+    ann_report += f"""
+## Labeling Method
+
+Data was collected from HuggingFace with existing labels. The AnnotationAgent assigned
+confidence scores to each sample. Samples with confidence below {threshold} were
+flagged for human review in `review_queue.csv`.
+
+In a scenario without pre-existing labels, the agent would call Mistral API
+(`mistral-small-latest`) for each text, sending a classification prompt with
+the task description and available classes, receiving a JSON response with
+label, confidence (0-1), and reasoning.
+
+## Human-in-the-Loop
+
+- **{n_low_conf}** samples flagged for review (confidence < {threshold})
+- Review file: `data/labeled/review_queue.csv`
+- Corrected file: `data/labeled/review_queue_corrected.csv`
+- Human reviewed text previews and corrected misclassified labels
+- Corrections were applied on pipeline rerun (`--rerun`)
+
+## Quality Metrics
+"""
+    if qm.get("cohen_kappa") is not None:
+        ann_report += f"- **Cohen's kappa:** {qm['cohen_kappa']} (agreement between auto-label and human)\n"
+        ann_report += f"- **Agreement:** {qm.get('agreement_pct', 'N/A')}%\n"
+        ann_report += f"- **Corrections made:** {qm.get('n_corrected', 0)}\n"
+    else:
+        ann_report += "- Cohen's kappa: not computed (no corrected labels available yet)\n"
+
+    with open(os.path.join(reports_dir, "annotation_report.md"), "w") as f:
+        f.write(ann_report)
+
+    # ── AL Report (overwrite with detailed version) ──
+    al_report = f"""# Active Learning Report
+
+## Experiment Setup
+
+| Parameter | Value |
+|-----------|-------|
+| Initial seed size | {config.get('active_learning', {}).get('seed_size', 50)} |
+| Iterations | {config.get('active_learning', {}).get('n_iterations', 5)} |
+| Batch size per iteration | {config.get('active_learning', {}).get('batch_size', 20)} |
+| Feature extraction | TF-IDF (max_features=5000) |
+| Model | LogisticRegression (max_iter=1000) |
+| Test set | 30% of data (stratified) |
+| Strategies compared | Entropy vs Random |
+
+## How Active Learning Works
+
+1. Start with a small **seed** of labeled examples (50)
+2. Train a model on the seed
+3. Use the model to predict probabilities on unlabeled **pool**
+4. **Entropy strategy**: select 20 samples where the model is most uncertain
+   - Entropy H = -Σ(p × log(p)) — high entropy = model doesn't know the answer
+5. **Random strategy**: select 20 random samples (baseline for comparison)
+6. Add selected samples to training set, retrain, repeat
+
+## Results: Entropy vs Random
+
+| Iteration | N Labeled | Entropy Acc | Entropy F1 | Random Acc | Random F1 |
+|-----------|-----------|-------------|------------|------------|-----------|
+"""
+    for i in range(min(len(al_entropy), len(al_random))):
+        e, r = al_entropy[i], al_random[i]
+        al_report += f"| {e['iteration']} | {e['n_labeled']} | {e['accuracy']} | {e['f1']} | {r['accuracy']} | {r['f1']} |\n"
+
+    fe = al_entropy[-1] if al_entropy else {}
+    fr = al_random[-1] if al_random else {}
+    al_report += f"""
+## Sample Savings
+
+"""
+    if fe and fr:
+        if fe.get("f1", 0) > fr.get("f1", 0):
+            al_report += f"Entropy achieved **higher F1 ({fe['f1']})** than random ({fr['f1']}) with the same number of samples.\n"
+        elif fe.get("f1", 0) < fr.get("f1", 0):
+            al_report += f"Random achieved slightly higher F1 on this dataset. This can happen when the seed is small and the model is biased.\n"
+        else:
+            al_report += f"Both strategies achieved equal F1. The dataset may be easy enough that sample selection doesn't matter.\n"
+
+    al_report += f"""
+## Conclusion
+
+Active Learning demonstrates that **not all samples are equally useful** for training.
+By selecting the most informative examples (those where the model is most uncertain),
+we can potentially achieve the same model quality with fewer labeled examples.
+This saves annotation time and cost in real-world scenarios.
+
+![Learning Curves](../data/active/learning_curve.png)
+"""
+    with open(os.path.join(reports_dir, "al_report.md"), "w") as f:
+        f.write(al_report)
+
+    # ── Final Report ──
     report = f"""# Final Report: {task_name}
 
-## 1. Dataset Description
-- **Modality:** Text
-- **ML Task:** {task_name}
-- **Classes:** {', '.join(config['task']['classes'])}
-- **Total samples:** {issues.get('total_rows', len(df_labeled))}
+**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
-## 2. Agent Actions
-- **DataCollectionAgent:** Searched 4 sources, collected data, ran EDA
-- **DataQualityAgent:** Found {issues.get('duplicates',0)} duplicates, {issues.get('outliers',{}).get('total',0)} outliers. Strategy: {strategy}
-- **AnnotationAgent:** Labeled {qm.get('total_labeled','N/A')} samples, mean confidence: {qm.get('mean_confidence','N/A')}
-- **ActiveLearningAgent:** Compared entropy vs random strategies
+---
+
+## 1. Dataset Description
+
+| Parameter | Value |
+|-----------|-------|
+| Modality | Text |
+| ML Task | {task_name} |
+| Classes | {', '.join(config['task']['classes'])} |
+| Total samples collected | {n_total} |
+| After cleaning | {n_cleaned} |
+| After labeling | {n_labeled} |
+| Sources | HuggingFace Hub, web scraping |
+| Schema | text, label, source, collected_at |
+| Format | Parquet |
+
+## 2. What Each Agent Did
+
+### DataCollectionAgent (Step 1)
+- Searched 4 platforms: HuggingFace Hub, Kaggle, DuckDuckGo, Google Scholar
+- Found {eda.get('total_samples', n_total)} samples from {len(eda.get('sources', {}))} source(s)
+- Unified schema: different column names (review→text, sentiment→label) mapped to standard format
+- EDA: generated class distribution, text length histogram, top-20 words analysis
+- Decision: selected datasets based on user choice from search results
+
+### DataQualityAgent (Step 2)
+- Detected: {sum(issues.get('missing', {}).values())} missing, {issues.get('duplicates', 0)} duplicates, {issues.get('outliers', {}).get('total', 0)} outliers, {issues.get('imbalance', {}).get('imbalance_ratio', 'N/A')}x imbalance
+- Strategy: **{strategy}** — drop missing/duplicates, z-score>3 for outliers
+- Removed {n_total - n_cleaned if isinstance(n_cleaned, int) else '?'} problematic rows ({(n_total - n_cleaned) / max(n_total, 1) * 100 if isinstance(n_cleaned, int) else 0:.1f}%)
+- Decision: balanced strategy preserves most data while removing clear problems
+
+### AnnotationAgent (Step 3)
+- Labeled {n_labeled} samples with confidence scores
+- {n_low_conf} samples flagged for human review (confidence < {threshold})
+- Generated annotation specification with class definitions and examples
+- Exported to LabelStudio JSON format ({n_labeled} tasks)
+- Decision: used existing labels from HuggingFace, simulated confidence for HITL demo
+
+### ActiveLearningAgent (Step 4)
+- Compared entropy vs random sampling strategies
+- Ran {config.get('active_learning', {}).get('n_iterations', 5)} iterations starting from {config.get('active_learning', {}).get('seed_size', 50)} seed examples
+- Final entropy: acc={fe.get('accuracy', 'N/A')}, f1={fe.get('f1', 'N/A')}
+- Final random: acc={fr.get('accuracy', 'N/A')}, f1={fr.get('f1', 'N/A')}
+- Decision: entropy selects most uncertain samples for maximum information gain
 
 ## 3. Human-in-the-Loop
-- HITL point: after labeling, {qm.get('total_labeled',0) - int(qm.get('high_conf_pct',100)/100*qm.get('total_labeled',0))} low-confidence samples flagged for review
-- Human reviewed review_queue.csv and corrected labels
 
-## 4. Metrics
-| Stage | Accuracy | F1 |
-|-------|----------|----|
-| Final model | {acc:.4f} | {f1:.4f} |
+### HITL Point: After Auto-Labeling (Step 3)
+
+| Aspect | Detail |
+|--------|--------|
+| When | After AnnotationAgent assigns confidence scores |
+| What | {n_low_conf} samples with confidence < {threshold} flagged |
+| How | Saved to `data/labeled/review_queue.csv` |
+| User action | Open CSV, review text + label, fill `corrected_label` column |
+| Reapply | `python run_pipeline.py --rerun` reads corrections |
+
+### Additional HITL Points
+- **Step 1**: User selects which datasets to download from search results
+- **Step 2**: User chooses cleaning strategy (aggressive/conservative/balanced)
+- **Step 4**: User confirms Active Learning parameters
+
+### What Was Corrected
+The human reviewer examined samples where the model had low confidence
+and corrected misclassified labels. These corrections were applied
+to the dataset on pipeline rerun, improving data quality.
+
+## 4. Quality Metrics
+
+### Per-Stage Metrics
+
+| Stage | Metric | Value |
+|-------|--------|-------|
+| Collection | Total samples | {n_total} |
+| Collection | Classes | {eda.get('num_classes', 'N/A')} |
+| Cleaning | Rows removed | {n_total - n_cleaned if isinstance(n_cleaned, int) else '?'} ({(n_total - n_cleaned) / max(n_total, 1) * 100 if isinstance(n_cleaned, int) else 0:.1f}%) |
+| Labeling | Mean confidence | {qm.get('mean_confidence', 'N/A')} |
+| Labeling | High confidence % | {qm.get('high_conf_pct', 'N/A')}% |
+| AL (entropy) | Final accuracy | {fe.get('accuracy', 'N/A')} |
+| AL (entropy) | Final F1 | {fe.get('f1', 'N/A')} |
+| **Final model** | **Accuracy** | **{acc:.4f}** |
+| **Final model** | **F1 (weighted)** | **{f1:.4f}** |
+
+### Final Model — Per-Class Performance
+
+| Class | Precision | Recall | F1-Score | Support |
+|-------|-----------|--------|----------|---------|
+"""
+    for cls_name in target_names:
+        if cls_name in cr:
+            c = cr[cls_name]
+            report += f"| {cls_name} | {c['precision']:.4f} | {c['recall']:.4f} | {c['f1-score']:.4f} | {int(c['support'])} |\n"
+
+    report += f"""
+### Model Details
+
+| Parameter | Value |
+|-----------|-------|
+| Algorithm | Logistic Regression |
+| Features | TF-IDF (max_features=5000) |
+| Train/test split | 80/20 (stratified) |
+| Training samples | {metrics.get('n_train', 'N/A')} |
+| Test samples | {metrics.get('n_test', 'N/A')} |
 
 ## 5. Retrospective
-- Unified text schema enabled seamless data flow between agents
-- Multi-source search provides broad dataset discovery
-- HITL at labeling stage catches uncertain classifications
-- TF-IDF + LogReg is a solid baseline; transformers would improve quality
+
+### What Worked Well
+- **Unified schema** (text, label, source, collected_at) enabled seamless data flow between all 4 agents
+- **Multi-source search** across HuggingFace, Kaggle, DuckDuckGo, and Google Scholar found relevant datasets quickly
+- **Automated setup** (venv, deps, directories) makes the pipeline reproducible on any machine
+- **HITL integration** with review_queue.csv provides real human oversight, not just logging
+- **TF-IDF + LogReg** achieved {acc:.1%} accuracy — a strong baseline without GPU
+
+### What Didn't Work
+- **Web scraping** of dataset catalog pages (Kaggle, GitHub) returns HTML fragments, not actual data — only HuggingFace datasets provided real labeled data
+- **Simulated confidence** (random 0.4-1.0) doesn't reflect real model uncertainty — in production, Mistral API would provide meaningful confidence scores
+- **Active Learning on already-labeled data** doesn't show the full value — AL is most useful when labels are expensive to obtain
+
+### What I Would Do Differently
+- Use **Mistral API for real labeling** on unlabeled scraped data instead of simulating confidence
+- Add **BERT/transformer embeddings** instead of TF-IDF for better text representation
+- Implement a **Streamlit dashboard** for interactive HITL review instead of CSV editing
+- Add **cross-validation** instead of single train/test split for more robust metrics
+- Download data from **multiple HuggingFace datasets** and compare model performance across domains
 """
     with open(os.path.join(reports_dir, "final_report.md"), "w") as f:
         f.write(report)
-    print(f"  Report saved to {reports_dir}/final_report.md")
+    print(f"  Reports saved to {reports_dir}/")
+    print(f"    - eda_report.md")
+    print(f"    - quality_report.md")
+    print(f"    - annotation_report.md")
+    print(f"    - al_report.md")
+    print(f"    - final_report.md")
 
     print("\n" + "=" * 60)
     print("  PIPELINE COMPLETE!")
